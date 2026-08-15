@@ -1,0 +1,12 @@
+model AdminLog {
+  id      String @id @default(uuid())
+  adminId String
+  admin   User   @relation(fields: [adminId], references: [id])
+  action  String
+  details String @db.Text
+
+  createdAt DateTime @default(now()) @db.Timestamp()
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamp()
+
+  @@map("adminLog")
+}

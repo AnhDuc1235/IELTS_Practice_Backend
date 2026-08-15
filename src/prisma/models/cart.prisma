@@ -1,0 +1,11 @@
+model Cart {
+  id        String     @id @default(uuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cartItems CartItem[]
+
+  createdAt DateTime @default(now()) @db.Timestamp()
+    updatedAt DateTime @default(now()) @updatedAt @db.Timestamp()
+
+  @@map("carts")
+}

@@ -1,0 +1,27 @@
+model User {
+    id       String  @id @default(uuid())
+    email    String  @unique
+    password String?
+    name     String
+    role     Role    @default(USER)
+    avatar   String?
+    phone    String?
+    address  String? @db.Text
+    city     String?
+    district String?
+    ward     String?
+
+    cart      Cart?
+    orders    Order[]
+    reviews   Review[]
+    adminLogs AdminLog[]
+
+    isActive Boolean @default(true)
+
+
+    createdAt DateTime @default(now()) @db.Timestamp()
+    updatedAt DateTime @default(now()) @updatedAt @db.Timestamp()
+    deletedAt DateTime?
+
+    @@map("users")
+}

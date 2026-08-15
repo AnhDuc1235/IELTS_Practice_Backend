@@ -1,0 +1,12 @@
+model slideImage {
+  id        String  @id @default(uuid())
+  url       String
+  slideId    String
+  publicId  String
+  slide      Slide    @relation(fields: [slideId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @db.Timestamp()
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamp()
+
+  @@map("slideImage")
+}

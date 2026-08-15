@@ -1,0 +1,15 @@
+model Slide {
+    id       String       @id @default(uuid())
+    title    String?
+    imageUrl String
+    publicId String
+    linkUrl  String?
+    order    Int          @default(0)
+    images   slideImage[]
+
+    deletedAt DateTime?
+    createdAt DateTime  @default(now()) @db.Timestamp()
+    updatedAt DateTime  @default(now()) @updatedAt @db.Timestamp()
+
+    @@map("slides")
+}

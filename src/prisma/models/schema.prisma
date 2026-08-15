@@ -1,0 +1,26 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum Role {
+  USER
+  ADMIN
+
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+  FAILED
+  RETURNED
+}

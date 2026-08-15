@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<%
+  const items = Array.isArray(orderItems) ? orderItems : [];
+
+  const displayOrderId = String(typeof orderId !== "undefined" && orderId ? orderId : "")
+    .split("-")[0];
+
+  const rawOrderTime = typeof orderTime !== "undefined" ? orderTime : "";
+  const parsedOrderTime = rawOrderTime ? new Date(rawOrderTime) : null;
+  const displayOrderTime =
+    parsedOrderTime && !Number.isNaN(parsedOrderTime.getTime())
+      ? new Intl.DateTimeFormat("vi-VN", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        }).format(parsedOrderTime)
+      : "";
+
+  const formatMoney = (value) => {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return value ? `$${value}` : "$0";
+    return `$${amount.toLocaleString("en-US", {
+      minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const formatLabel = (value) => {
+    if (!value) return "";
+    return String(value)
+      .replace(/_/g, " ")
+      .toLowerCase()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  };
+
+  const displayPaymentMethod = formatLabel(typeof orderPayment !== "undefined" ? orderPayment : "");
+%>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="x-apple-disable-message-reformatting" />
+    <title>Order confirmed</title>
+    <style>
+      @media only screen and (max-width: 620px) {
+        .frame { padding: 18px 10px !important; }
+        .container { width: 100% !important; }
+        .content { padding: 28px 22px !important; }
+        .stack { display: block !important; width: 100% !important; }
+        .stack-gap { padding-left: 0 !important; padding-top: 22px !important; }
+        .hero-title { font-size: 46px !important; line-height: 50px !important; }
+        .product-image { width: 72px !important; height: 72px !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0; padding:0; background:#bb9b69; font-family:Arial, Helvetica, sans-serif; color:#0a0a0a;">
+    <div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+      Your order <%= displayOrderId %> is confirmed.
+    </div>
+
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation" bgcolor="#bb9b69" style="background:#bb9b69;">
+      <tr>
+        <td class="frame" align="center" bgcolor="#bb9b69" style="padding:30px 24px 30px; background:#bb9b69;">
+          <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" role="presentation" bgcolor="#ffffff" style="width:600px; max-width:600px; background:#ffffff;">
+            <tr>
+              <td class="content" style="padding:38px 52px 44px;">
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+                  <tr>
+                    <td align="center" style="padding-bottom:28px;">
+                      <img
+                        src="<%= typeof logoUrl !== 'undefined' && logoUrl ? logoUrl : (typeof appBaseUrl !== 'undefined' && appBaseUrl ? `${appBaseUrl}/gsi-logo.svg` : 'http://localhost:8080/gsi-logo.svg') %>"
+                        width="160"
+                        alt="GSI Logo"
+                        style="display:inline-block; width:160px; max-width:100%; height:auto; border:0;"
+                      />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" class="hero-title" style="font-size:74px; line-height:76px; font-weight:400; letter-spacing:0; padding:0 0 54px;">
+                      Your Order<br />Is Confirmed
+                    </td>
+                  </tr>
+                  <tr>
+                    <td align="center" style="font-size:38px; line-height:46px; font-weight:400; padding-bottom:56px;">
+                      Thank you for purchasing our product
+                    </td>
+                  </tr>
+                </table>
+
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+                  <tr>
+                    <td class="stack" width="50%" valign="top" style="font-size:32px; line-height:38px; font-weight:400; padding-bottom:28px;">
+                      Order summary
+                    </td>
+                    <td class="stack stack-gap" width="50%" valign="top" style="font-size:16px; line-height:22px; font-weight:500; padding-bottom:28px; padding-left:24px;">
+                      <%= displayOrderId %>
+                    </td>
+                  </tr>
+                </table>
+
+                <% if (items.length > 0) { %>
+                  <% items.forEach((item) => { %>
+                    <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation" style="border-collapse:separate; border-spacing:0; margin-bottom:10px;">
+                      <tr>
+                        <td style="background:#f7f7f7; border-radius:10px; padding:10px;">
+                          <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+                            <tr>
+                              <td width="82" valign="middle">
+                                <% if (item.product && item.product.thumbnail) { %>
+                                  <img class="product-image" src="<%= item.product.thumbnail %>" width="72" height="72" alt="" style="display:block; width:72px; height:72px; object-fit:cover; border-radius:7px; border:0;" />
+                                <% } else { %>
+                                  <div class="product-image" style="width:72px; height:72px; border-radius:7px; background:#e8e2d6;"></div>
+                                <% } %>
+                              </td>
+                              <td valign="middle" style="padding-left:14px;">
+                                <div style="font-size:18px; line-height:24px; font-weight:600; color:#0a0a0a;"><%= item.productName %></div>
+                                <div style="font-size:14px; line-height:20px; color:#7e8492; padding-top:4px;">Qty: <%= item.quantity %></div>
+                              </td>
+                              <td width="95" valign="middle" align="right" style="font-size:18px; line-height:24px; font-weight:700; color:#0a0a0a;">
+                                <%= formatMoney(item.price) %>
+                              </td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  <% }) %>
+                <% } %>
+
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation" style="padding-top:22px;">
+                  <tr>
+                    <td style="font-size:18px; line-height:28px; color:#979da6; padding:0 0 14px;">Subtotal</td>
+                    <td align="right" style="font-size:18px; line-height:28px; font-weight:700; padding:0 0 14px;"><%= formatMoney(orderSubtotal) %></td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:18px; line-height:28px; color:#979da6; padding:0 0 14px;">Shipping</td>
+                    <td align="right" style="font-size:18px; line-height:28px; font-weight:700; padding:0 0 14px;"><%= formatMoney(orderShip) %></td>
+                  </tr>
+                  <tr>
+                    <td colspan="2" style="border-top:1px solid #ebebeb; height:18px; line-height:18px;">&nbsp;</td>
+                  </tr>
+                  <tr>
+                    <td style="font-size:22px; line-height:30px; color:#7e8492;">Total</td>
+                    <td align="right" style="font-size:22px; line-height:30px; font-weight:700;"><%= formatMoney(orderTotal) %></td>
+                  </tr>
+                </table>
+
+                <h2 style="font-size:40px; line-height:46px; font-weight:400; margin:52px 0 24px;">Customer information</h2>
+
+                <table width="100%" border="0" cellspacing="0" cellpadding="0" role="presentation">
+                  <tr>
+                    <td class="stack" width="50%" valign="top" style="padding:0 18px 30px 0;">
+                      <div style="font-size:16px; line-height:22px; color:#979da6; padding-bottom:10px;">Shipping address</div>
+                      <div style="font-size:18px; line-height:26px;"><%= orderAddress %></div>
+                    </td>
+                    <td class="stack stack-gap" width="50%" valign="top" style="padding:0 0 30px 18px;">
+                      <div style="font-size:16px; line-height:22px; color:#979da6; padding-bottom:10px;">Order created at</div>
+                      <div style="font-size:18px; line-height:26px;"><%= displayOrderTime %></div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="stack" width="50%" valign="top" style="padding:0 18px 0 0;">
+                      <div style="font-size:16px; line-height:22px; color:#979da6; padding-bottom:10px;">Receiver name</div>
+                      <div style="font-size:18px; line-height:26px;"><%= receiverName %></div>
+                    </td>
+                    <td class="stack stack-gap" width="50%" valign="top" style="padding:0 0 0 18px;">
+                      <div style="font-size:16px; line-height:22px; color:#979da6; padding-bottom:10px;">Payment method</div>
+                      <div style="font-size:18px; line-height:26px;"><%= displayPaymentMethod %></div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
