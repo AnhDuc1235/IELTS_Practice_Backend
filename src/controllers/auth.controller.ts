@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { authService } from "../services/auth.service";
-import { emailQueue } from "../queues/email.queue";
 import { verifyOtp } from "../utils/otp";
 import { userService } from "../services/user.service";
 
@@ -8,15 +7,6 @@ export const authController = {
   register: async (req: Request, res: Response) => {
     try {
       const user = await authService.register(req.body);
-      emailQueue.add('send-email-register', {
-        to: user.email,
-        subject: "Register success",
-        template: "welcome-register",
-        options: {
-          name: user.name
-        }
-      }).catch(err => console.error("Queue error:", err))
-
       return res.json({
         success: true,
         message: "success",

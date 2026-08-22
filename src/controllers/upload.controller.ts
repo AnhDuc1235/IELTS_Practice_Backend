@@ -9,8 +9,8 @@ export const uploadController = {
             res.json({
                 success: true,
                 message: "Upload image success",
-                url: result.secure_url,
-                publicId: result.public_id
+                url: result.url,
+                publicId: result.publicId
             });
         } catch (error: any) {
             res.status(400).json({

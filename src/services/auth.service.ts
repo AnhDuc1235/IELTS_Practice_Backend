@@ -56,8 +56,8 @@ export const authService = {
             throw new Error("Token invalid")
         }
 
-        const checkBacklist = await this.verifyBlacklist(decoded.jti!)
-        if (checkBacklist) {
+        const checkBlacklist = await this.verifyBlacklist(decoded.jti!)
+        if (checkBlacklist) {
             throw new Error("Token Blacklisted")
         }
 
@@ -71,9 +71,9 @@ export const authService = {
         const seconds = Math.floor(expRefreshToken! - Date.now() / 1000)
 
         await redisClient.setEx(
-            `refreshToken:${jtiRefreshToken}`,
+            `refreshToken:${jtiRefreshToken}`,  //jti là để biết refresh token nào đang được sử dụng, tránh việc refresh token bị lạm dụng
             seconds,
-            userId.toString()
+            userId.toString() //lưu userId để biết refresh token này thuộc về user nào
         )
         return { accessToken, refreshToken }
     },
