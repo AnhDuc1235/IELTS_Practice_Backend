@@ -1,7 +1,6 @@
 import { Request, Response } from "express"
 import { userService } from "../services/user.service"
 import { generateOtp, saveOtp, verifyOtp } from "../utils/otp"
-import { emailQueue } from "../queues/email.queue"
 
 export const otpController = {
     sendOtp: async (req: Request, res: Response) => {
@@ -16,15 +15,7 @@ export const otpController = {
         const otp = generateOtp()
         await saveOtp(user.id, otp)
 
-        emailQueue.add("send-email-otp", {
-            to: user.email,
-            subject: "Your OTP Code",
-            template: "verify",
-            options: {
-                otp: otp,
-                name: user.name
-            }
-        })
+        // TODO: send OTP email once a new mail/queue setup is wired up
 
         return res.json({
             success: true,
@@ -43,15 +34,7 @@ export const otpController = {
         const otp = generateOtp()
         await saveOtp(user.id, otp)
 
-        emailQueue.add("send-email-otp", {
-            to: user.email,
-            subject: "Your OTP Code",
-            template: "verify",
-            options: {
-                otp: otp,
-                name: user.name
-            }
-        })
+        // TODO: send OTP email once a new mail/queue setup is wired up
 
         return res.json({
             success: true,

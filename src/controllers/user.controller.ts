@@ -1,5 +1,4 @@
 import { Request, Response } from "express"
-import { cartService } from "../services/cart.Service"
 import { userService } from "../services/user.service";
 import { userQuery } from "../types/user.type";
 
