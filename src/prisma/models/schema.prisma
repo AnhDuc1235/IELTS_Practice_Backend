@@ -10,17 +10,4 @@ datasource db {
 enum Role {
   USER
   ADMIN
-
-}
-
-enum OrderStatus {
-  PENDING
-  PAID
-  PROCESSING
-  SHIPPED
-  DELIVERED
-  CANCELLED
-  REFUNDED
-  FAILED
-  RETURNED
 }
