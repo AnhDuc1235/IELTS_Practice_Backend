@@ -1,0 +1,18 @@
+model AttemptAnswer {
+  id         BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  attemptId  BigInt   @map("attempt_id") @db.UnsignedBigInt
+  questionId BigInt   @map("question_id") @db.UnsignedBigInt
+  answerText String?  @map("answer_text") @db.Text
+  audioUrl   String?  @map("audio_url") @db.VarChar(500)
+  transcript String?  @db.Text
+  isCorrect  Boolean? @map("is_correct")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+
+  attempt     Attempt      @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question    Question     @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  aiFeedbacks AiFeedback[]
+
+  @@unique([attemptId, questionId])
+  @@index([questionId])
+  @@map("attempt_answers")
+}

@@ -1,0 +1,16 @@
+model Question {
+  id          BigInt  @id @default(autoincrement()) @db.UnsignedBigInt
+  groupId     BigInt  @map("group_id") @db.UnsignedBigInt
+  questionNo  Int     @map("question_no")
+  content     String  @db.Text
+  explanation String? @db.Text
+  points      Decimal @default(1.0) @db.Decimal(4, 1)
+
+  group          QuestionGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  options        QuestionOption[]
+  answers        QuestionAnswer[]
+  attemptAnswers AttemptAnswer[]
+
+  @@unique([groupId, questionNo])
+  @@map("questions")
+}

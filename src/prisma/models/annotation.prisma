@@ -1,0 +1,18 @@
+model Annotation {
+  id           BigInt         @id @default(autoincrement()) @db.UnsignedBigInt
+  attemptId    BigInt         @map("attempt_id") @db.UnsignedBigInt
+  partId       BigInt         @map("part_id") @db.UnsignedBigInt
+  type         AnnotationType
+  startOffset  Int            @map("start_offset")
+  endOffset    Int            @map("end_offset")
+  selectedText String         @map("selected_text") @db.Text
+  noteText     String?        @map("note_text") @db.Text
+  color        String?        @db.VarChar(20)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.DateTime(0)
+
+  attempt Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  part    TestPart @relation(fields: [partId], references: [id], onDelete: Restrict)
+
+  @@index([attemptId, partId])
+  @@map("annotations")
+}

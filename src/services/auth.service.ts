@@ -71,7 +71,7 @@ export const authService = {
         const seconds = Math.floor(expRefreshToken! - Date.now() / 1000)
 
         await redisClient.setEx(
-            `refreshToken:${jtiRefreshToken}`,  //jti là để biết refresh token nào đang được sử dụng, tránh việc refresh token bị lạm dụng
+            `refreshToken:${jtiRefreshToken}`,  //jti là để biết refresh token nào đang được sử dụng, để server biết refresh token nào còn hợp lệ, từ đó cho phép người dùng xin access token mới mà không cần đăng nhập lại.
             seconds,
             userId.toString() //lưu userId để biết refresh token này thuộc về user nào
         )

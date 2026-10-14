@@ -8,6 +8,43 @@ datasource db {
 }
 
 enum Role {
-  USER
-  ADMIN
+  USER  // Người dùng.
+  ADMIN // Quản trị viên.
+}
+
+enum Skill {
+  LISTENING @map("listening") // Nghe.
+  READING   @map("reading")   // Đọc.
+  WRITING   @map("writing")   // Viết.
+  SPEAKING  @map("speaking")  // Nói.
+}
+
+enum TestStatus {
+  DRAFT     @map("draft")     // Bản nháp.
+  PUBLISHED @map("published") // Đã xuất bản.
+  ARCHIVED  @map("archived")  // Đã lưu trữ.
+}
+
+enum QuestionType {
+  MCQ_SINGLE    @map("mcq_single")    // Chọn một đáp án.
+  MCQ_MULTI     @map("mcq_multi")     // Chọn nhiều đáp án.
+  TRUE_FALSE_NG @map("true_false_ng") // Đúng, sai hoặc không có thông tin.
+  YES_NO_NG     @map("yes_no_ng")     // Có, không hoặc không có thông tin.
+  FILL_BLANK    @map("fill_blank")    // Điền vào chỗ trống.
+  MATCHING      @map("matching")      // Nối các mục tương ứng.
+  SHORT_ANSWER  @map("short_answer")  // Trả lời ngắn.
+  ESSAY         @map("essay")         // Bài viết.
+  SPEAKING      @map("speaking")      // Câu trả lời nói.
+}
+
+enum AttemptStatus {
+  IN_PROGRESS @map("in_progress") // Đang làm.
+  SUBMITTED   @map("submitted")   // Đã nộp.
+  GRADED      @map("graded")      // Đã chấm.
+  ABANDONED   @map("abandoned")   // Đã bỏ.
+}
+
+enum AnnotationType {
+  HIGHLIGHT @map("highlight") // Tô sáng.
+  NOTE      @map("note")      // Ghi chú.
 }

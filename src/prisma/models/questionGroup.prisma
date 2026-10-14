@@ -1,0 +1,14 @@
+model QuestionGroup {
+  id            BigInt       @id @default(autoincrement()) @db.UnsignedBigInt
+  partId        BigInt       @map("part_id") @db.UnsignedBigInt
+  groupNo       Int          @map("group_no") @db.UnsignedTinyInt
+  questionType  QuestionType @map("question_type")
+  instruction   String?      @db.Text
+  sharedContent String?      @map("shared_content") @db.LongText
+
+  part      TestPart   @relation(fields: [partId], references: [id], onDelete: Cascade)
+  questions Question[]
+
+  @@unique([partId, groupNo])
+  @@map("question_groups")
+}

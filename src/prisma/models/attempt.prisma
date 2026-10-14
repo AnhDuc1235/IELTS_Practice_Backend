@@ -1,0 +1,23 @@
+model Attempt {
+  id               BigInt        @id @default(autoincrement()) @db.UnsignedBigInt
+  userId           String        @map("user_id") @db.VarChar(191)
+  testId           BigInt        @map("test_id") @db.UnsignedBigInt
+  status           AttemptStatus @default(IN_PROGRESS)
+  startedAt        DateTime      @default(now()) @map("started_at") @db.DateTime(0)
+  lastSavedAt      DateTime      @default(now()) @map("last_saved_at") @db.DateTime(0)
+  submittedAt      DateTime?     @map("submitted_at") @db.DateTime(0)
+  timeSpentSeconds Int           @default(0) @map("time_spent_seconds")
+  currentPartNo    Int           @default(1) @map("current_part_no") @db.TinyInt
+  correctCount     Int?          @map("correct_count")
+  totalQuestions   Int?          @map("total_questions")
+  bandScore        Decimal?      @map("band_score") @db.Decimal(2, 1)
+
+  user        User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  test        Test            @relation(fields: [testId], references: [id], onDelete: Restrict)
+  answers     AttemptAnswer[]
+  annotations Annotation[]
+
+  @@index([userId, testId, status])
+  @@index([userId, startedAt])
+  @@map("attempts")
+}
