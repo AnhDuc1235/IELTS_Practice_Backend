@@ -1,6 +1,7 @@
 model Test {
   id              BigInt     @id @default(autoincrement()) @db.UnsignedBigInt
   skill           Skill
+  category        TestCategory @default(ACADEMIC)
   title           String     @db.VarChar(255)
   description     String?    @db.Text
   level           String?    @db.VarChar(50)

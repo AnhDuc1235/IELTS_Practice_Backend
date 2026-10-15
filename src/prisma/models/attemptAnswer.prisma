@@ -5,6 +5,7 @@ model AttemptAnswer {
   answerText String?  @map("answer_text") @db.Text
   audioUrl   String?  @map("audio_url") @db.VarChar(500)
   transcript String?  @db.Text
+  scoreEarned Decimal @default(0.0) @map("score_earned") @db.Decimal(4, 1)
   isCorrect  Boolean? @map("is_correct")
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
 

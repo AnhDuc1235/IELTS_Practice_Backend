@@ -2,6 +2,8 @@ model AdminLog {
   id      String @id @default(uuid())
   adminId String
   admin   User   @relation(fields: [adminId], references: [id])
+  entityType String? @db.VarChar(50)
+  entityId   String? @db.VarChar(191)
   action  String
   details String @db.Text
 

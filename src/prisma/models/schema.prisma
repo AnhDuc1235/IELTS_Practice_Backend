@@ -19,6 +19,11 @@ enum Skill {
   SPEAKING  @map("speaking")  // Nói.
 }
 
+enum TestCategory {
+  ACADEMIC         @map("academic") // IELTS Academic.
+  GENERAL_TRAINING @map("general_training") // IELTS General Training.
+}
+
 enum TestStatus {
   DRAFT     @map("draft")     // Bản nháp.
   PUBLISHED @map("published") // Đã xuất bản.
@@ -42,6 +47,13 @@ enum AttemptStatus {
   SUBMITTED   @map("submitted")   // Đã nộp.
   GRADED      @map("graded")      // Đã chấm.
   ABANDONED   @map("abandoned")   // Đã bỏ.
+}
+
+enum AiFeedbackStatus {
+  PENDING    @map("pending") // Chờ chấm.
+  PROCESSING @map("processing") // Đang chấm.
+  COMPLETED  @map("completed") // Đã chấm xong.
+  FAILED     @map("failed") // Chấm bị lỗi.
 }
 
 enum AnnotationType {

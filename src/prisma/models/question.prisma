@@ -4,6 +4,7 @@ model Question {
   questionNo  Int     @map("question_no")
   content     String  @db.Text
   explanation String? @db.Text
+  transcriptLocation String? @map("transcript_location") @db.VarChar(255)
   points      Decimal @default(1.0) @db.Decimal(4, 1)
 
   group          QuestionGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
