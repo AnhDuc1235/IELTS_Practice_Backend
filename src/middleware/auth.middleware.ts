@@ -21,3 +21,12 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
     });
   }
 };
+
+// Same as authMiddleware, but requests without a token continue as guests (req.user stays undefined).
+// A token that is sent but invalid is still rejected with 401.
+export const optionalAuthMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  if (!req.get("authorization")) {
+    return next();
+  }
+  return authMiddleware(req, res, next);
+};
