@@ -1,7 +1,7 @@
 import { Request, Response } from "express"
 import { testService } from "../services/test.service";
 import { errorType } from "../types/error";
-import { testQuery } from "../types/test.type";
+import { submitTestBody, testQuery } from "../types/test.type";
 import { idFormat } from "../utils/idFormat";
 
 export const testController = {
@@ -67,6 +67,28 @@ export const testController = {
                 success: true,
                 message: "Get test content success",
                 data: content
+            });
+        } catch (error) {
+            return res.status((error as errorType).statusCode ?? 400).json({
+                success: false,
+                message: (error as Error).message
+            });
+        }
+    },
+    // POST /test/:testId/submit - body mirrors the content JSON (parts -> questionGroups -> questions -> answer).
+    // submit = true scores Reading / Listening (Writing / Speaking are only stored); otherwise progress is just saved.
+    submitTest: async (req: Request, res: Response) => {
+        try {
+            const userId = req.user!.id;
+            const testId = idFormat(req.params.testId, "testId");
+            const body = req.body as submitTestBody;
+
+            const result = await testService.submitTest(testId, userId, body);
+
+            return res.json({
+                success: true,
+                message: body.submit ? "Submit test success" : "Save progress success",
+                data: result
             });
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
