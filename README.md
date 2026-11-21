@@ -21,3 +21,8 @@ npx prisma generate
 npm run db:push
 npm run db:seed
 ```
+
+
+# Route for history test detail
+
+localhost3001/test-history/{TestId}?attemptId=?

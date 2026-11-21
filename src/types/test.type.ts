@@ -8,6 +8,10 @@ export type testQuery = {
     category?: string | undefined;
 }
 
+export type historyQuery = {
+    page: number;
+    limit: number;
+}
 
 // Parsed body of POST /test/:testId/submit (see submitTestSchema for the rules)
 export type submitTestBody = z.output<typeof submitTestSchema>

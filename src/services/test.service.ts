@@ -1,6 +1,6 @@
 import { AttemptStatus, Prisma, QuestionType, Skill, TestCategory, TestStatus } from "../generated/prisma/client";
 import { errorType } from "../types/error";
-import { submitTestBody, testQuery } from "../types/test.type";
+import { historyQuery, submitTestBody, testQuery } from "../types/test.type";
 import { prisma } from "../utils/prisma";
 
 /*
@@ -74,6 +74,9 @@ const questionSelect = {
         orderBy: { label: "asc" },
     },
 } satisfies Prisma.QuestionSelect;
+
+// Only a handed-in attempt can be reviewed. An IN_PROGRESS / ABANDONED attempt must never reveal the answer key.
+const FINISHED_STATUSES: AttemptStatus[] = [AttemptStatus.SUBMITTED, AttemptStatus.GRADED];
 
 // Flattens an attempt row into the progress object sent to the FE.
 const toProgress = (attempt: AttemptSummary | null | undefined, liveTotalQuestions?: number) => {
@@ -541,5 +544,162 @@ export const testService = {
         );
 
         return testService.getTestContent(testId, userId, attemptId);
+    },
+
+    // The logged-in user's attempt history: one row per attempt (newest first) with the test's title,
+    // skill and duration and the attempt's time spent / band score / correct count / total questions.
+    // Unfinished attempts are included too, so the FE can tell them apart by `status`.
+    async getTestHistory(userId: string, query: historyQuery) {
+        const { page, limit } = query;
+        const where = { userId };
+
+        const [attempts, total] = await Promise.all([
+            prisma.attempt.findMany({
+                where,
+                select: {
+                    id: true,
+                    status: true,
+                    startedAt: true,
+                    submittedAt: true,
+                    timeSpentSeconds: true,
+                    bandScore: true,
+                    correctCount: true,
+                    totalQuestions: true,
+                    test: { select: { id: true, title: true, skill: true, durationMinutes: true } },
+                },
+                orderBy: { startedAt: "desc" },
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+            prisma.attempt.count({ where }),
+        ]);
+
+        return { attempts, total };
+    },
+
+    // Review of one finished attempt of a test: parts -> question groups -> questions with the user's answer.
+    // Without attemptId the user's newest finished attempt of this test is used.
+    //  - READING / LISTENING: answerText + isCorrect + scoreEarned, the question's options and its correct answers.
+    //  - WRITING: answerText + the latest AI feedback (no options / correct answers).
+    //  - SPEAKING: audioUrl + the latest AI feedback (no options / correct answers).
+    // The correct answers are only ever returned for an attempt that has been handed in.
+    async getTestHistoryDetail(testId: bigint, userId: string, attemptId?: bigint) {
+        // userId is part of the filter, so a user can only review their own attempts.
+        const attempt = await prisma.attempt.findFirst({
+            where: attemptId ? { id: attemptId, userId, testId } : { userId, testId, status: { in: FINISHED_STATUSES } },
+            orderBy: { startedAt: "desc" },
+            select: {
+                id: true,
+                status: true,
+                startedAt: true,
+                submittedAt: true,
+                timeSpentSeconds: true,
+                correctCount: true,
+                totalQuestions: true,
+                bandScore: true,
+                answers: {
+                    select: {
+                        questionId: true,
+                        answerText: true,
+                        audioUrl: true,
+                        scoreEarned: true,
+                        isCorrect: true,
+                        // newest feedback only; errorMessage / modelName are internal and not selected
+                        aiFeedbacks: {
+                            select: { id: true, status: true, overallBand: true, criteriaScores: true, feedback: true, createdAt: true },
+                            orderBy: { createdAt: "desc" },
+                            take: 1,
+                        },
+                    },
+                },
+            },
+        });
+        if (!attempt) {
+            throw notFound("Attempt");
+        }
+        if (!FINISHED_STATUSES.includes(attempt.status)) {
+            throw conflict("Attempt has not been submitted yet");
+        }
+
+        // The attempt exists, so the test does too; it is not filtered by PUBLISHED because the
+        // user must still be able to review a test that was archived after they took it.
+        const test = await prisma.test.findFirst({
+            where: { id: testId },
+            select: {
+                ...testSummarySelect,
+                parts: {
+                    orderBy: { partNo: "asc" },
+                    select: {
+                        id: true,
+                        partNo: true,
+                        title: true,
+                        instruction: true,
+                        content: true,
+                        audioUrl: true,
+                        imageUrl: true,
+                        questionGroups: {
+                            orderBy: { groupNo: "asc" },
+                            select: {
+                                id: true,
+                                groupNo: true,
+                                questionType: true,
+                                instruction: true,
+                                sharedContent: true,
+                                questions: {
+                                    select: { ...questionSelect, answers: { select: { answerText: true } } },
+                                    orderBy: { questionNo: "asc" },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        if (!test) {
+            throw notFound("Test");
+        }
+
+        const answerByQuestion = new Map<bigint, (typeof attempt.answers)[number]>();
+        for (const answer of attempt.answers) {
+            answerByQuestion.set(answer.questionId, answer);
+        }
+
+        const parts = test.parts.map((part) => ({
+            ...part,
+            questionGroups: part.questionGroups.map((group) => ({
+                ...group,
+                questions: group.questions.map(({ options, answers: keys, ...question }) => {
+                    const saved = answerByQuestion.get(question.id);
+
+                    if (test.skill === Skill.READING || test.skill === Skill.LISTENING) {
+                        return {
+                            ...question,
+                            options,
+                            correctAnswers: keys.map((key) => key.answerText),
+                            answer: saved
+                                ? { answerText: saved.answerText, isCorrect: saved.isCorrect, scoreEarned: saved.scoreEarned }
+                                : null,
+                        };
+                    }
+                    if (test.skill === Skill.WRITING) {
+                        return {
+                            ...question,
+                            answer: saved ? { answerText: saved.answerText, aiFeedback: saved.aiFeedbacks[0] ?? null } : null,
+                        };
+                    }
+                    // SPEAKING: the recording instead of text
+                    return {
+                        ...question,
+                        answer: saved ? { audioUrl: saved.audioUrl, aiFeedback: saved.aiFeedbacks[0] ?? null } : null,
+                    };
+                }),
+            })),
+        }));
+
+        const { parts: _parts, ...testInfo } = test;
+        // the raw answer rows are already merged into the questions, so they are dropped from `attempt`
+        const { answers: _answers, ...attemptInfo } = attempt;
+
+        return { ...testInfo, attempt: attemptInfo, parts };
     },
 };

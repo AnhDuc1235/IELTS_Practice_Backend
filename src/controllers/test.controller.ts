@@ -1,7 +1,7 @@
 import { Request, Response } from "express"
 import { testService } from "../services/test.service";
 import { errorType } from "../types/error";
-import { submitTestBody, testQuery } from "../types/test.type";
+import { historyQuery, submitTestBody, testQuery } from "../types/test.type";
 import { idFormat } from "../utils/idFormat";
 
 export const testController = {
@@ -89,6 +89,59 @@ export const testController = {
                 success: true,
                 message: body.submit ? "Submit test success" : "Save progress success",
                 data: result
+            });
+        } catch (error) {
+            return res.status((error as errorType).statusCode ?? 400).json({
+                success: false,
+                message: (error as Error).message
+            });
+        }
+    },
+    // GET /test-history?page=&limit= - the logged-in user's attempts with each test's title / skill / duration and scores
+    getTestHistory: async (req: Request, res: Response) => {
+        try {
+            const query: historyQuery = {
+                page: Math.max(1, Number(req.query.page) || 1),
+                limit: Math.min(50, Math.max(1, Number(req.query.limit) || 10)),
+            };
+
+            const { attempts, total } = await testService.getTestHistory(req.user!.id, query);
+
+            return res.json({
+                success: true,
+                message: "Get test history success",
+                data: attempts,
+                pagination: {
+                    page: query.page,
+                    limit: query.limit,
+                    total: total,
+                    totalPages: Math.ceil(total / query.limit),
+                },
+            });
+        } catch (error) {
+            return res.status((error as errorType).statusCode ?? 400).json({
+                success: false,
+                message: (error as Error).message
+            });
+        }
+    },
+    // GET /test-history/:testId?attemptId= - review of one finished attempt: test, parts, question groups, questions,
+    // the user's answers and (by skill) options / correct answers or AI feedback
+    getTestHistoryDetail: async (req: Request, res: Response) => {
+        try {
+            const userId = req.user!.id;
+            const testId = idFormat(req.params.testId, "testId");
+            if (!req.query.attemptId) {
+                throw new Error("attemptId is required");
+            }
+            const attemptId = idFormat(req.query.attemptId, "attemptId");
+
+            const detail = await testService.getTestHistoryDetail(testId, userId, attemptId);
+
+            return res.json({
+                success: true,
+                message: "Get test history detail success",
+                data: detail
             });
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
