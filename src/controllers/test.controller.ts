@@ -13,8 +13,10 @@ export const testController = {
                 limit: Math.min(50, Math.max(1, Number(req.query.limit) || 10)),
                 skill: req.query.skill as string,
                 category: req.query.category as string,
+                // ?search= is matched against the test title; ignored when it is not a single string
+                search: typeof req.query.search === "string" ? req.query.search.trim().slice(0, 100) : undefined,
+                sort: req.query.sort as string,
             };
-
             const { tests, total } = await testService.getTests(query, req.user?.id);
 
             return res.json({
@@ -130,13 +132,12 @@ export const testController = {
     getTestHistoryDetail: async (req: Request, res: Response) => {
         try {
             const userId = req.user!.id;
-            const testId = idFormat(req.params.testId, "testId");
-            if (!req.query.attemptId) {
+            if (!idFormat(req.params.attemptId, "attemptId")) {
                 throw new Error("attemptId is required");
             }
-            const attemptId = idFormat(req.query.attemptId, "attemptId");
+            const attemptId = idFormat(req.params.attemptId, "attemptId");
 
-            const detail = await testService.getTestHistoryDetail(testId, userId, attemptId);
+            const detail = await testService.getTestHistoryDetail(userId, attemptId);
 
             return res.json({
                 success: true,

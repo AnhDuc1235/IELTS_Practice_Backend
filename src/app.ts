@@ -14,6 +14,8 @@ const PORT = Number(process.env.PORT) || 3001;
 app.set("json replacer", (_key: string, value: unknown) =>
   typeof value === "bigint" ? value.toString() : value
 );
+
+app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.get("/", (req, res) => {

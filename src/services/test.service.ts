@@ -26,6 +26,15 @@ const conflict = (message: string) => {
 const isSkill = (value: string): value is Skill => Object.values(Skill).includes(value as Skill);
 const isTestCategory = (value: string): value is TestCategory => Object.values(TestCategory).includes(value as TestCategory);
 
+// Allowed values of ?sort= on GET /test (the default is "newest").
+const testSortOrder = {
+    newest: { createdAt: "desc" },
+    oldest: { createdAt: "asc" },
+    title: { title: "asc" },
+} satisfies Record<string, Prisma.TestOrderByWithRelationInput>;
+
+const isTestSort = (value: string): value is keyof typeof testSortOrder => Object.keys(testSortOrder).includes(value);
+
 // Test fields shown in lists and detail pages.
 const testSummarySelect = {
     id: true,
@@ -136,52 +145,73 @@ const saveAnswer = (
 export const testService = {
     // Lists published tests. With a userId each test also carries the user's latest attempt as `progress`.
     async getTests(query: testQuery, userId?: string) {
-        const { page, limit, skill, category } = query;
-
-        if (skill && !isSkill(skill)) {
-            throw new Error("Invalid skill");
-        }
-        if (category && !isTestCategory(category)) {
-            throw new Error("Invalid category");
-        }
-
-        const where = {
-            status: TestStatus.PUBLISHED,
-            ...(skill && isSkill(skill) && { skill }),
-            ...(category && isTestCategory(category) && { category }),
-        };
-
-        const [tests, total] = await Promise.all([
-            prisma.test.findMany({
-                where,
-                select: testSummarySelect,
-                orderBy: { createdAt: "desc" },
-                skip: (page - 1) * limit,
-                take: limit,
-            }),
-            prisma.test.count({ where }),
-        ]);
-
-        // One extra query for the whole page: distinct(testId) + newest first keeps
-        // only the latest attempt of each listed test.
-        const latestByTest = new Map<bigint, AttemptSummary>();
-        if (userId && tests.length > 0) {
-            const attempts = await prisma.attempt.findMany({
-                where: { userId, testId: { in: tests.map((test) => test.id) } },
-                select: attemptSummarySelect,
-                orderBy: { startedAt: "desc" },
-                distinct: ["testId"],
-            });
-            for (const attempt of attempts) {
-                latestByTest.set(attempt.testId, attempt);
+            const { page, limit, skill, category, search, sort = "newest" } = query;
+    
+            if (skill && !isSkill(skill)) {
+                throw new Error("Invalid skill");
             }
-        }
-
-        return {
-            tests: tests.map((test) => ({ ...test, progress: toProgress(latestByTest.get(test.id)) })),
-            total,
-        };
-    },
+            if (category && !isTestCategory(category)) {
+                throw new Error("Invalid category");
+            }
+            if (!isTestSort(sort)) {
+                throw new Error("Invalid sort");
+            }
+    
+            const where = {
+                status: TestStatus.PUBLISHED,
+                ...(skill && isSkill(skill) && { skill }),
+                ...(category && isTestCategory(category) && { category }),
+                // MySQL's default collation makes this case-insensitive
+                ...(search && { title: { contains: search } }),
+            };
+    
+            const [tests, total] = await Promise.all([
+                prisma.test.findMany({
+                    where,
+                    select: {
+                        ...testSummarySelect,
+                        // counts for the cards; attemptsCount only counts handed-in attempts
+                        _count: { select: { parts: true, attempts: { where: { status: { in: FINISHED_STATUSES } } } } },
+                        // questions are two levels down (part -> group -> question), so count per group and add up below
+                        parts: { select: { questionGroups: { select: { _count: { select: { questions: true } } } } } },
+                    },
+                    // id is the tie-breaker: tests created in the same second would otherwise swap places between pages
+                    orderBy: [testSortOrder[sort], { id: "desc" }],
+                    skip: (page - 1) * limit,
+                    take: limit,
+                }),
+                prisma.test.count({ where }),
+            ]);
+    
+            // One extra query for the whole page: distinct(testId) + newest first keeps
+            // only the latest attempt of each listed test.
+            const latestByTest = new Map<bigint, AttemptSummary>();
+            if (userId && tests.length > 0) {
+                const attempts = await prisma.attempt.findMany({
+                    where: { userId, testId: { in: tests.map((test) => test.id) } },
+                    select: attemptSummarySelect,
+                    orderBy: { startedAt: "desc" },
+                    distinct: ["testId"],
+                });
+                for (const attempt of attempts) {
+                    latestByTest.set(attempt.testId, attempt);
+                }
+            }
+    
+            return {
+                tests: tests.map(({ _count, parts, ...test }) => ({
+                    ...test,
+                    partsCount: _count.parts,
+                    totalQuestions: parts.reduce(
+                        (sum, part) => sum + part.questionGroups.reduce((groupSum, group) => groupSum + group._count.questions, 0),
+                        0,
+                    ),
+                    attemptsCount: _count.attempts,
+                    progress: toProgress(latestByTest.get(test.id)),
+                })),
+                total,
+            };
+        },
 
     // One published test (metadata + parts list). With a userId it also returns the user's
     // latest attempt as `progress`, or null if the user has never started the test.
@@ -191,7 +221,17 @@ export const testService = {
             select: {
                 ...testSummarySelect,
                 parts: {
-                    select: { id: true, partNo: true, title: true },
+                    select: { 
+                        id: true, 
+                        partNo: true, 
+                        title: true, 
+                        questionGroups: { 
+                            select: { 
+                                questionType: true,
+                                _count: { select: { questions: true } }
+                            }
+                        } 
+                    },
                     orderBy: { partNo: "asc" },
                 },
             },
@@ -583,13 +623,14 @@ export const testService = {
     //  - WRITING: answerText + the latest AI feedback (no options / correct answers).
     //  - SPEAKING: audioUrl + the latest AI feedback (no options / correct answers).
     // The correct answers are only ever returned for an attempt that has been handed in.
-    async getTestHistoryDetail(testId: bigint, userId: string, attemptId?: bigint) {
+    async getTestHistoryDetail(userId: string, attemptId?: bigint) {
         // userId is part of the filter, so a user can only review their own attempts.
         const attempt = await prisma.attempt.findFirst({
-            where: attemptId ? { id: attemptId, userId, testId } : { userId, testId, status: { in: FINISHED_STATUSES } },
+            where: attemptId ? { id: attemptId, userId} : { userId, status: { in: FINISHED_STATUSES } },
             orderBy: { startedAt: "desc" },
             select: {
                 id: true,
+                testId: true,
                 status: true,
                 startedAt: true,
                 submittedAt: true,
@@ -624,7 +665,7 @@ export const testService = {
         // The attempt exists, so the test does too; it is not filtered by PUBLISHED because the
         // user must still be able to review a test that was archived after they took it.
         const test = await prisma.test.findFirst({
-            where: { id: testId },
+            where: { id: attempt.testId },
             select: {
                 ...testSummarySelect,
                 parts: {

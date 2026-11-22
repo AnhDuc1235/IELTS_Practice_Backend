@@ -1,5 +1,23 @@
 # IELTS Practice Backend
 
+## Note
+
+Necessary before running
+
+```sh
+docker compose up --build -d
+npx prisma generate
+npx prisma db push
+
+npm install cors
+npm install dotenv
+npm run build
+```
+run server
+```sh
+npm run dev
+```
+
 ## Database demo data
 
 Start the local dependencies and automatically create the Prisma schema and demo IELTS tests:

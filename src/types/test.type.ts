@@ -6,6 +6,8 @@ export type testQuery = {
     limit: number;
     skill?: string | undefined;
     category?: string | undefined;
+    search?: string | undefined;
+    sort?: string | undefined;
 }
 
 export type historyQuery = {

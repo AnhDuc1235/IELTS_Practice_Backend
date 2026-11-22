@@ -17,9 +17,9 @@ router.get("/test/:testId/content", authMiddleware, testController.getTestConten
 router.post("/test/:testId/submit", authMiddleware, validate(submitTestSchema), testController.submitTest)
 
 // needs a logged-in user: their attempts with test title / skill / duration and scores
-router.get("/test-history", authMiddleware, testController.getTestHistory)
+router.get("/attempts/history", authMiddleware, testController.getTestHistory)
 
 // needs a logged-in user: review of one finished attempt of the chosen test (?attemptId= to pick another attempt)
-router.get("/test-history/:testId", authMiddleware, testController.getTestHistoryDetail)
+router.get("/attempts/:attemptId", authMiddleware, testController.getTestHistoryDetail)
 
 export default router
