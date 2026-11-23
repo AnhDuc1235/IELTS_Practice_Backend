@@ -2,21 +2,24 @@ import { AttemptStatus, Prisma, QuestionType, Skill, TestCategory, TestStatus } 
 import { errorType } from "../types/error";
 import { historyQuery, submitTestBody, testQuery } from "../types/test.type";
 import { prisma } from "../utils/prisma";
+import { calculateBandScore } from "../utils/bandScore";
 
 /*
- * Read-only access to IELTS test content for learners.
- * Rules applied everywhere:
- *  - only PUBLISHED tests are visible
- *  - QuestionAnswer (answer key) and explanation are never selected
- *  - results are sorted by partNo / groupNo / questionNo
+ * Dịch vụ xử lý nội dung đề thi IELTS cho học viên.
+ * Các nguyên tắc áp dụng toàn hệ thống:
+ *  - Chỉ hiển thị các đề thi có trạng thái PUBLISHED (Đã xuất bản)
+ *  - Tuyệt đối không chọn trường QuestionAnswer (đáp án đúng) và explanation (giải thích) khi học viên đang làm bài
+ *  - Dữ liệu luôn được sắp xếp theo thứ tự partNo / groupNo / questionNo
  */
 
+// Hàm tạo lỗi 404 Not Found
 const notFound = (what: string) => {
-    const error = new Error(`${what} not found`) as errorType;
+    const error = new Error(`${what} không tồn tại`) as errorType;
     error.statusCode = 404;
     return error;
 };
 
+// Hàm tạo lỗi 409 Conflict
 const conflict = (message: string) => {
     const error = new Error(message) as errorType;
     error.statusCode = 409;
@@ -26,7 +29,7 @@ const conflict = (message: string) => {
 const isSkill = (value: string): value is Skill => Object.values(Skill).includes(value as Skill);
 const isTestCategory = (value: string): value is TestCategory => Object.values(TestCategory).includes(value as TestCategory);
 
-// Allowed values of ?sort= on GET /test (the default is "newest").
+// Các tùy chọn sắp xếp hợp lệ của ?sort= trên GET /test (mặc định là "newest" - mới nhất).
 const testSortOrder = {
     newest: { createdAt: "desc" },
     oldest: { createdAt: "asc" },
@@ -35,7 +38,7 @@ const testSortOrder = {
 
 const isTestSort = (value: string): value is keyof typeof testSortOrder => Object.keys(testSortOrder).includes(value);
 
-// Test fields shown in lists and detail pages.
+// Các trường thông tin tóm tắt đề thi hiển thị trong danh sách và trang chi tiết.
 const testSummarySelect = {
     id: true,
     skill: true,
@@ -48,12 +51,12 @@ const testSummarySelect = {
     updatedAt: true,
 } satisfies Prisma.TestSelect;
 
-// A saved answer counts as "answered" once it holds text or an audio recording.
+// Một câu trả lời được tính là "đã trả lời" khi có nội dung chữ hoặc file ghi âm.
 const answeredFilter = {
     OR: [{ answerText: { not: null } }, { audioUrl: { not: null } }],
 } satisfies Prisma.AttemptAnswerWhereInput;
 
-// Attempt fields shown as the user's progress.
+// Các trường thông tin của lượt thi hiển thị tiến trình của thí sinh.
 const attemptSummarySelect = {
     id: true,
     testId: true,
@@ -62,6 +65,7 @@ const attemptSummarySelect = {
     lastSavedAt: true,
     submittedAt: true,
     timeSpentSeconds: true,
+    durationMinutes: true,
     currentPartNo: true,
     correctCount: true,
     totalQuestions: true,
@@ -71,7 +75,7 @@ const attemptSummarySelect = {
 
 type AttemptSummary = Prisma.AttemptGetPayload<{ select: typeof attemptSummarySelect }>;
 
-// Fields shown to learners for a question (no explanation / transcriptLocation / answers).
+// Các trường câu hỏi hiển thị cho thí sinh (ẩn explanation, transcriptLocation và đáp án đúng).
 const questionSelect = {
     id: true,
     groupId: true,
@@ -84,10 +88,10 @@ const questionSelect = {
     },
 } satisfies Prisma.QuestionSelect;
 
-// Only a handed-in attempt can be reviewed. An IN_PROGRESS / ABANDONED attempt must never reveal the answer key.
+// Chỉ lượt thi đã hoàn thành (SUBMITTED hoặc GRADED) mới được phép xem lại chi tiết và đáp án.
 const FINISHED_STATUSES: AttemptStatus[] = [AttemptStatus.SUBMITTED, AttemptStatus.GRADED];
 
-// Flattens an attempt row into the progress object sent to the FE.
+// Chuyển đổi dữ liệu lượt thi thành đối tượng tiến trình (progress) gửi về cho Frontend.
 const toProgress = (attempt: AttemptSummary | null | undefined, liveTotalQuestions?: number) => {
     if (!attempt) {
         return null;
@@ -96,29 +100,28 @@ const toProgress = (attempt: AttemptSummary | null | undefined, liveTotalQuestio
     return {
         ...rest,
         answeredCount: _count.answers,
-        // totalQuestions is only stored on the attempt after grading, so fall back to a live count
+        // totalQuestions chỉ được lưu trên attempt sau khi chấm điểm, nên dùng số đếm câu hỏi trực tiếp làm dự phòng
         totalQuestions: attempt.totalQuestions ?? liveTotalQuestions ?? null,
     };
 };
 
-// Only these skills are scored automatically. WRITING / SPEAKING are saved as SUBMITTED and graded later.
+// Các kỹ năng được chấm điểm tự động tức thì (Reading và Listening).
 const AUTO_GRADED_SKILLS: Skill[] = [Skill.READING, Skill.LISTENING];
 
-// What the learner entered for one question (the AttemptAnswer columns the FE controls).
+// Kiểu dữ liệu câu trả lời mà thí sinh gửi lên cho một câu hỏi
 type AnswerInput = { answerText: string | null; audioUrl: string | null; transcript: string | null };
 
-// Blank / whitespace-only input counts as "no answer".
+// Làm sạch chuỗi: chuỗi rỗng hoặc chỉ có khoảng trắng được coi là null (chưa trả lời).
 const cleanText = (value?: string | null) => (value && value.trim() ? value.trim() : null);
 
-// Answers are compared ignoring case, leading/trailing spaces and repeated spaces.
+// Chuẩn hóa chuỗi đáp án: bỏ khoảng trắng đầu/cuối, gom nhiều khoảng trắng liên tiếp và chuyển về chữ thường.
 const normalizeAnswer = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
 
-// MCQ_MULTI answers are a set of option labels such as "A,C". The key stores one label per
-// QuestionAnswer row (or "A,C" in one row), so both sides are turned into a sorted list of labels.
+// Đáp án trắc nghiệm nhiều lựa chọn (MCQ_MULTI): tập hợp các nhãn như "A,C". Chuẩn hóa thành danh sách nhãn đã sắp xếp.
 const toLabelSet = (values: string[]) =>
     Array.from(new Set(values.flatMap((value) => value.split(",")).map(normalizeAnswer).filter(Boolean))).sort();
 
-// Every other type is correct when it equals ANY of the question's QuestionAnswer rows (alternative spellings).
+// Kiểm tra câu trả lời có đúng hay không so với danh sách đáp án được chấp nhận
 const isAnswerCorrect = (type: QuestionType, given: string, keys: string[]) => {
     if (type === QuestionType.MCQ_MULTI) {
         const givenSet = toLabelSet([given]);
@@ -129,7 +132,7 @@ const isAnswerCorrect = (type: QuestionType, given: string, keys: string[]) => {
     return keys.some((key) => normalizeAnswer(key) === normalized);
 };
 
-// Inserts or updates one AttemptAnswer row (unique on attemptId + questionId).
+// Thêm mới hoặc cập nhật một bản ghi câu trả lời trong lượt thi (AttemptAnswer).
 const saveAnswer = (
     tx: Prisma.TransactionClient,
     attemptId: bigint,
@@ -143,101 +146,106 @@ const saveAnswer = (
     });
 
 export const testService = {
-    // Lists published tests. With a userId each test also carries the user's latest attempt as `progress`.
+    // Lấy danh sách đề thi đã xuất bản. Kèm theo lượt thi mới nhất của thí sinh dưới dạng `progress` nếu có userId.
     async getTests(query: testQuery, userId?: string) {
-            const { page, limit, skill, category, search, sort = "newest" } = query;
-    
-            if (skill && !isSkill(skill)) {
-                throw new Error("Invalid skill");
-            }
-            if (category && !isTestCategory(category)) {
-                throw new Error("Invalid category");
-            }
-            if (!isTestSort(sort)) {
-                throw new Error("Invalid sort");
-            }
-    
-            const where = {
-                status: TestStatus.PUBLISHED,
-                ...(skill && isSkill(skill) && { skill }),
-                ...(category && isTestCategory(category) && { category }),
-                // MySQL's default collation makes this case-insensitive
-                ...(search && { title: { contains: search } }),
-            };
-    
-            const [tests, total] = await Promise.all([
-                prisma.test.findMany({
-                    where,
-                    select: {
-                        ...testSummarySelect,
-                        // counts for the cards; attemptsCount only counts handed-in attempts
-                        _count: { select: { parts: true, attempts: { where: { status: { in: FINISHED_STATUSES } } } } },
-                        // questions are two levels down (part -> group -> question), so count per group and add up below
-                        parts: { select: { questionGroups: { select: { _count: { select: { questions: true } } } } } },
-                    },
-                    // id is the tie-breaker: tests created in the same second would otherwise swap places between pages
-                    orderBy: [testSortOrder[sort], { id: "desc" }],
-                    skip: (page - 1) * limit,
-                    take: limit,
-                }),
-                prisma.test.count({ where }),
-            ]);
-    
-            // One extra query for the whole page: distinct(testId) + newest first keeps
-            // only the latest attempt of each listed test.
-            const latestByTest = new Map<bigint, AttemptSummary>();
-            if (userId && tests.length > 0) {
-                const attempts = await prisma.attempt.findMany({
-                    where: { userId, testId: { in: tests.map((test) => test.id) } },
-                    select: attemptSummarySelect,
-                    orderBy: { startedAt: "desc" },
-                    distinct: ["testId"],
-                });
-                for (const attempt of attempts) {
-                    latestByTest.set(attempt.testId, attempt);
-                }
-            }
-    
-            return {
-                tests: tests.map(({ _count, parts, ...test }) => ({
-                    ...test,
-                    partsCount: _count.parts,
-                    totalQuestions: parts.reduce(
-                        (sum, part) => sum + part.questionGroups.reduce((groupSum, group) => groupSum + group._count.questions, 0),
-                        0,
-                    ),
-                    attemptsCount: _count.attempts,
-                    progress: toProgress(latestByTest.get(test.id)),
-                })),
-                total,
-            };
-        },
+        const { page, limit, search, sort = "newest" } = query;
+        const skill = query.skill ? (query.skill.toUpperCase() as Skill) : undefined;
+        let category: TestCategory | undefined = undefined;
+        if (query.category) {
+            const upper = query.category.toUpperCase();
+            if (upper.includes("GENERAL")) category = TestCategory.GENERAL_TRAINING;
+            else if (upper.includes("ACADEMIC")) category = TestCategory.ACADEMIC;
+            else if (isTestCategory(upper)) category = upper as TestCategory;
+            else throw new Error("Phân loại (category) không hợp lệ");
+        }
 
-    // One published test (metadata + parts list). With a userId it also returns the user's
-    // latest attempt as `progress`, or null if the user has never started the test.
+        if (skill && !isSkill(skill)) {
+            throw new Error("Kỹ năng (skill) không hợp lệ");
+        }
+        if (!isTestSort(sort)) {
+            throw new Error("Kiểu sắp xếp (sort) không hợp lệ");
+        }
+
+        const where = {
+            status: TestStatus.PUBLISHED,
+            ...(skill && { skill }),
+            ...(category && { category }),
+            // Tìm kiếm theo tiêu đề (không phân biệt hoa thường)
+            ...(search && { title: { contains: search } }),
+        };
+
+        const [tests, total] = await Promise.all([
+            prisma.test.findMany({
+                where,
+                select: {
+                    ...testSummarySelect,
+                    // Đếm số phần thi và số lượt thi đã nộp
+                    _count: { select: { parts: true, attempts: { where: { status: { in: FINISHED_STATUSES } } } } },
+                    // Đếm tổng số câu hỏi từ các nhóm câu hỏi
+                    parts: { select: { questionGroups: { select: { _count: { select: { questions: true } } } } } },
+                },
+                // id làm tiêu chí sắp xếp phụ để thứ tự luôn ổn định giữa các trang
+                orderBy: [testSortOrder[sort], { id: "desc" }],
+                skip: (page - 1) * limit,
+                take: limit,
+            }),
+            prisma.test.count({ where }),
+        ]);
+
+        // Gom lượt thi mới nhất của mỗi đề thi cho thí sinh
+        const latestByTest = new Map<bigint, AttemptSummary>();
+        if (userId && tests.length > 0) {
+            const attempts = await prisma.attempt.findMany({
+                where: { userId, testId: { in: tests.map((test) => test.id) } },
+                select: attemptSummarySelect,
+                orderBy: { startedAt: "desc" },
+                distinct: ["testId"],
+            });
+            for (const attempt of attempts) {
+                latestByTest.set(attempt.testId, attempt);
+            }
+        }
+
+        return {
+            tests: tests.map(({ _count, parts, ...test }) => ({
+                ...test,
+                partsCount: _count.parts,
+                totalQuestions: parts.reduce(
+                    (sum, part) => sum + part.questionGroups.reduce((groupSum, group) => groupSum + group._count.questions, 0),
+                    0,
+                ),
+                attemptsCount: _count.attempts,
+                progress: toProgress(latestByTest.get(test.id)),
+            })),
+            total,
+        };
+    },
+
+    // Lấy thông tin chi tiết một đề thi đã xuất bản (thông tin chung + danh sách các phần thi).
+    // Nếu có userId, trả về kèm lượt thi gần nhất dưới dạng `progress`, hoặc null nếu chưa từng bắt đầu.
     async getTest(testId: bigint, userId?: string) {
         const test = await prisma.test.findFirst({
             where: { id: testId, status: TestStatus.PUBLISHED },
             select: {
                 ...testSummarySelect,
                 parts: {
-                    select: { 
-                        id: true, 
-                        partNo: true, 
-                        title: true, 
-                        questionGroups: { 
-                            select: { 
+                    select: {
+                        id: true,
+                        partNo: true,
+                        title: true,
+                        questionGroups: {
+                            select: {
                                 questionType: true,
-                                _count: { select: { questions: true } }
-                            }
-                        } 
+                                _count: { select: { questions: true } },
+                            },
+                        },
                     },
                     orderBy: { partNo: "asc" },
                 },
             },
         });
         if (!test) {
-            throw notFound("Test");
+            throw notFound("Đề thi");
         }
         if (!userId) {
             return { ...test, progress: null };
@@ -255,8 +263,8 @@ export const testService = {
         return { ...test, progress: toProgress(attempt, totalQuestions) };
     },
 
-    // Finds the attempt to resume: the given one, else the user's newest IN_PROGRESS, else their newest.
-    // userId is always part of the filter, so a user can never read someone else's attempt.
+    // Tìm lượt thi để làm tiếp: theo attemptId truyền vào, hoặc phiên IN_PROGRESS mới nhất, hoặc phiên mới nhất.
+    // Luôn lọc theo userId để đảm bảo học viên không truy cập nhầm bài của người khác.
     async findUserAttempt(userId: string, testId: bigint, attemptId?: bigint) {
         const select = {
             id: true,
@@ -265,6 +273,7 @@ export const testService = {
             lastSavedAt: true,
             submittedAt: true,
             timeSpentSeconds: true,
+            durationMinutes: true,
             currentPartNo: true,
             correctCount: true,
             totalQuestions: true,
@@ -288,7 +297,7 @@ export const testService = {
                 select,
             });
             if (!attempt) {
-                throw notFound("Attempt");
+                throw notFound("Lượt thi");
             }
             return attempt;
         }
@@ -309,10 +318,9 @@ export const testService = {
         });
     },
 
-    // Everything the FE needs to render or resume a test for one user:
-    // parts -> question groups -> questions -> options, with the user's saved answer on each
-    // question as `answer`, plus `progress` (counts and the first unanswered question).
-    // `attempt` is null when the user has not started the test yet.
+    // Toàn bộ dữ liệu Frontend cần để hiển thị hoặc làm tiếp đề thi cho một học viên:
+    // parts -> question groups -> questions -> options, gộp sẵn câu trả lời đã lưu của thí sinh ở từng câu hỏi,
+    // kèm đối tượng `progress` (số câu đã làm, tổng số câu, và câu chưa làm đầu tiên để nhảy đến làm tiếp).
     async getTestContent(testId: bigint, userId: string, attemptId?: bigint) {
         const test = await prisma.test.findFirst({
             where: { id: testId, status: TestStatus.PUBLISHED },
@@ -321,7 +329,7 @@ export const testService = {
                 parts: {
                     orderBy: { partNo: "asc" },
                     select: {
-                        // `transcript` is deliberately not selected: it would reveal listening answers
+                        // Ẩn transcript để tránh lộ đáp án bài thi nghe
                         id: true,
                         partNo: true,
                         title: true,
@@ -345,17 +353,17 @@ export const testService = {
             },
         });
         if (!test) {
-            throw notFound("Test");
+            throw notFound("Đề thi");
         }
 
         const attempt = await testService.findUserAttempt(userId, testId, attemptId);
 
-        // The user's saved answers indexed by question, so merging is a lookup instead of a search
+        // Tạo Map câu trả lời đã lưu theo questionId để tra cứu nhanh O(1)
         const answerByQuestion = new Map<bigint, NonNullable<typeof attempt>["answers"][number]>();
         for (const answer of attempt?.answers ?? []) {
             answerByQuestion.set(answer.questionId, answer);
         }
-        const showGrading = attempt?.status === AttemptStatus.GRADED; // scores stay hidden until graded
+        const showGrading = attempt?.status === AttemptStatus.GRADED;
 
         let totalQuestions = 0;
         let answeredCount = 0;
@@ -393,30 +401,32 @@ export const testService = {
         }));
 
         const { parts: _parts, ...testInfo } = test;
-        // the raw answer rows are already merged into the questions, so they are dropped from `attempt`
         const attemptInfo = attempt ? (({ answers: _answers, ...rest }) => rest)(attempt) : null;
+        const durationMinutes = attempt?.durationMinutes ?? test.durationMinutes ?? 60;
 
         return {
             ...testInfo,
+            durationMinutes,
             attempt: attemptInfo,
             progress: { answeredCount, totalQuestions, resume },
             parts,
         };
     },
 
-    // Saves (or submits) the logged-in user's answers for a test.
-    //  - submit = false: stores the attempt + answers as they are, nothing is scored.
-    //  - submit = true, READING / LISTENING: compares every question with its QuestionAnswer rows,
-    //    stores isCorrect + scoreEarned per answer and correctCount / totalQuestions on the attempt (GRADED).
-    //  - submit = true, WRITING / SPEAKING: stores the answers and marks the attempt SUBMITTED (not scored).
-    // Returns the same JSON as getTestContent so the FE can re-render from one shape.
+    // Lưu tiến trình hoặc nộp bài thi cho học viên:
+    //  - submit = false: Chỉ lưu lại tiến trình và câu trả lời tạm thời, chưa chấm điểm.
+    //  - submit = true (READING / LISTENING): So khớp câu trả lời với đáp án chuẩn, lưu isCorrect, scoreEarned
+    //    và cập nhật correctCount, totalQuestions, tính bandScore chuẩn IELTS (1.0 - 9.0) (GRADED).
+    //  - submit = true (WRITING / SPEAKING): Lưu lại câu trả lời và chuyển trạng thái sang SUBMITTED.
     async submitTest(testId: bigint, userId: string, body: submitTestBody) {
-        // The answer key is selected ONLY here, on the server, and is never sent back to the FE.
+        // Đáp án đúng CHỈ ĐƯỢC LẤY TRÊN SERVER TẠI ĐÂY để chấm điểm, tuyệt đối không gửi về Frontend
         const test = await prisma.test.findFirst({
             where: { id: testId, status: TestStatus.PUBLISHED },
             select: {
                 id: true,
                 skill: true,
+                category: true,
+                durationMinutes: true,
                 parts: {
                     select: {
                         questionGroups: {
@@ -432,7 +442,7 @@ export const testService = {
             },
         });
         if (!test) {
-            throw notFound("Test");
+            throw notFound("Đề thi");
         }
 
         const questions = new Map<bigint, { type: QuestionType; points: number; keys: string[] }>();
@@ -449,17 +459,16 @@ export const testService = {
         }
 
         if (body.currentPartNo !== undefined && body.currentPartNo > test.parts.length) {
-            throw new Error("Invalid currentPartNo");
+            throw new Error("currentPartNo không hợp lệ");
         }
 
-        // Flatten parts -> groups -> questions into questionId -> answer. Only the question id is trusted;
-        // an id that is not part of this test is rejected.
+        // Làm phẳng cấu trúc parts -> groups -> questions thành Map questionId -> answer
         const submitted = new Map<bigint, AnswerInput>();
         for (const part of body.parts) {
             for (const group of part.questionGroups) {
                 for (const question of group.questions) {
                     if (!questions.has(question.id)) {
-                        throw new Error(`Question ${question.id} does not belong to this test`);
+                        throw new Error(`Câu hỏi ${question.id} không thuộc về đề thi này`);
                     }
                     if (question.answer) {
                         submitted.set(question.id, {
@@ -474,7 +483,6 @@ export const testService = {
 
         const attemptId = await prisma.$transaction(
             async (tx) => {
-                // userId is part of every filter, so a user can only ever touch their own attempt.
                 let attempt: { id: bigint; status: AttemptStatus } | null;
                 if (body.attemptId) {
                     attempt = await tx.attempt.findFirst({
@@ -482,7 +490,7 @@ export const testService = {
                         select: { id: true, status: true },
                     });
                     if (!attempt) {
-                        throw notFound("Attempt");
+                        throw notFound("Lượt thi");
                     }
                 } else {
                     attempt = await tx.attempt.findFirst({
@@ -492,24 +500,29 @@ export const testService = {
                     });
                     if (!attempt) {
                         attempt = await tx.attempt.create({
-                            data: { userId, testId },
+                            data: {
+                                userId,
+                                testId,
+                                durationMinutes: body.durationMinutes ?? test.durationMinutes ?? 60,
+                            },
                             select: { id: true, status: true },
                         });
                     }
                 }
                 if (attempt.status !== AttemptStatus.IN_PROGRESS) {
-                    throw conflict("Attempt has already been submitted");
+                    throw conflict("Lượt thi này đã được nộp trước đó");
                 }
 
                 const progress = {
                     lastSavedAt: new Date(),
                     ...(body.timeSpentSeconds !== undefined && { timeSpentSeconds: body.timeSpentSeconds }),
+                    ...(body.durationMinutes !== undefined && { durationMinutes: body.durationMinutes }),
                     ...(body.currentPartNo !== undefined && { currentPartNo: body.currentPartNo }),
                 };
                 let attemptData: Prisma.AttemptUpdateManyMutationInput = progress;
 
                 if (body.submit && AUTO_GRADED_SKILLS.includes(test.skill)) {
-                    // Answers saved earlier by "save progress" requests are merged with the ones sent now (now wins).
+                    // Gộp câu trả lời đã lưu từ các lần lưu dở trước với câu trả lời gửi lên lần này
                     const saved = await tx.attemptAnswer.findMany({
                         where: { attemptId: attempt.id },
                         select: { questionId: true, answerText: true, audioUrl: true, transcript: true },
@@ -524,7 +537,6 @@ export const testService = {
 
                     let correctCount = 0;
                     let totalQuestions = 0;
-                    // Every question gets a row, so unanswered ones are stored as incorrect.
                     for (const [questionId, question] of questions) {
                         const answer = merged.get(questionId) ?? { answerText: null, audioUrl: null, transcript: null };
                         const gradable =
@@ -547,12 +559,16 @@ export const testService = {
                         });
                     }
 
+                    // Tự động tính điểm IELTS Band Score chuẩn (1.0 - 9.0)
+                    const bandScore = calculateBandScore(correctCount, test.skill, test.category);
+
                     attemptData = {
                         ...progress,
                         status: AttemptStatus.GRADED,
                         submittedAt: new Date(),
                         correctCount,
                         totalQuestions,
+                        bandScore,
                     };
                 } else {
                     for (const [questionId, answer] of submitted) {
@@ -560,22 +576,18 @@ export const testService = {
                     }
 
                     if (body.submit) {
-                        // TEMPLATE: WRITING / SPEAKING are not scored yet. The answers are stored as they are
-                        // (isCorrect stays null, scoreEarned stays 0) and the attempt waits as SUBMITTED.
-                        // Later, create AiFeedback rows (status PENDING) for these answers here and let
-                        // the grader move the attempt to GRADED and fill bandScore.
+                        // WRITING / SPEAKING được đánh dấu SUBMITTED và chờ chấm điểm
                         attemptData = { ...progress, status: AttemptStatus.SUBMITTED, submittedAt: new Date() };
                     }
                 }
 
-                // Only an attempt that is still IN_PROGRESS can be updated, so a double click or two
-                // parallel submits cannot grade the same attempt twice.
+                // Chỉ cập nhật khi lượt thi vẫn đang IN_PROGRESS để ngăn chặn click đúp hoặc gửi nhiều request cùng lúc
                 const updated = await tx.attempt.updateMany({
                     where: { id: attempt.id, status: AttemptStatus.IN_PROGRESS },
                     data: attemptData,
                 });
                 if (updated.count !== 1) {
-                    throw conflict("Attempt has already been submitted");
+                    throw conflict("Lượt thi này đã được nộp trước đó");
                 }
 
                 return attempt.id;
@@ -586,9 +598,7 @@ export const testService = {
         return testService.getTestContent(testId, userId, attemptId);
     },
 
-    // The logged-in user's attempt history: one row per attempt (newest first) with the test's title,
-    // skill and duration and the attempt's time spent / band score / correct count / total questions.
-    // Unfinished attempts are included too, so the FE can tell them apart by `status`.
+    // Lịch sử các lần thi của thí sinh đăng nhập: mỗi lượt thi kèm tiêu đề đề thi, kỹ năng, thời lượng, điểm band, số câu đúng...
     async getTestHistory(userId: string, query: historyQuery) {
         const { page, limit } = query;
         const where = { userId };
@@ -602,6 +612,7 @@ export const testService = {
                     startedAt: true,
                     submittedAt: true,
                     timeSpentSeconds: true,
+                    durationMinutes: true,
                     bandScore: true,
                     correctCount: true,
                     totalQuestions: true,
@@ -617,16 +628,11 @@ export const testService = {
         return { attempts, total };
     },
 
-    // Review of one finished attempt of a test: parts -> question groups -> questions with the user's answer.
-    // Without attemptId the user's newest finished attempt of this test is used.
-    //  - READING / LISTENING: answerText + isCorrect + scoreEarned, the question's options and its correct answers.
-    //  - WRITING: answerText + the latest AI feedback (no options / correct answers).
-    //  - SPEAKING: audioUrl + the latest AI feedback (no options / correct answers).
-    // The correct answers are only ever returned for an attempt that has been handed in.
+    // Xem lại một lượt thi đã nộp: parts -> question groups -> questions kèm câu trả lời của thí sinh.
+    // Nếu không truyền attemptId, hệ thống tự động lấy lượt thi đã nộp gần nhất của người dùng.
     async getTestHistoryDetail(userId: string, attemptId?: bigint) {
-        // userId is part of the filter, so a user can only review their own attempts.
         const attempt = await prisma.attempt.findFirst({
-            where: attemptId ? { id: attemptId, userId} : { userId, status: { in: FINISHED_STATUSES } },
+            where: attemptId ? { id: attemptId, userId } : { userId, status: { in: FINISHED_STATUSES } },
             orderBy: { startedAt: "desc" },
             select: {
                 id: true,
@@ -635,6 +641,7 @@ export const testService = {
                 startedAt: true,
                 submittedAt: true,
                 timeSpentSeconds: true,
+                durationMinutes: true,
                 correctCount: true,
                 totalQuestions: true,
                 bandScore: true,
@@ -645,7 +652,7 @@ export const testService = {
                         audioUrl: true,
                         scoreEarned: true,
                         isCorrect: true,
-                        // newest feedback only; errorMessage / modelName are internal and not selected
+                        // Chỉ lấy nhận xét AI mới nhất
                         aiFeedbacks: {
                             select: { id: true, status: true, overallBand: true, criteriaScores: true, feedback: true, createdAt: true },
                             orderBy: { createdAt: "desc" },
@@ -656,14 +663,12 @@ export const testService = {
             },
         });
         if (!attempt) {
-            throw notFound("Attempt");
+            throw notFound("Lượt thi");
         }
         if (!FINISHED_STATUSES.includes(attempt.status)) {
-            throw conflict("Attempt has not been submitted yet");
+            throw conflict("Lượt thi này chưa được nộp");
         }
 
-        // The attempt exists, so the test does too; it is not filtered by PUBLISHED because the
-        // user must still be able to review a test that was archived after they took it.
         const test = await prisma.test.findFirst({
             where: { id: attempt.testId },
             select: {
@@ -697,7 +702,7 @@ export const testService = {
             },
         });
         if (!test) {
-            throw notFound("Test");
+            throw notFound("Đề thi");
         }
 
         const answerByQuestion = new Map<bigint, (typeof attempt.answers)[number]>();
@@ -728,7 +733,7 @@ export const testService = {
                             answer: saved ? { answerText: saved.answerText, aiFeedback: saved.aiFeedbacks[0] ?? null } : null,
                         };
                     }
-                    // SPEAKING: the recording instead of text
+                    // SPEAKING: trả về audioUrl và nhận xét AI
                     return {
                         ...question,
                         answer: saved ? { audioUrl: saved.audioUrl, aiFeedback: saved.aiFeedbacks[0] ?? null } : null,
@@ -738,7 +743,6 @@ export const testService = {
         }));
 
         const { parts: _parts, ...testInfo } = test;
-        // the raw answer rows are already merged into the questions, so they are dropped from `attempt`
         const { answers: _answers, ...attemptInfo } = attempt;
 
         return { ...testInfo, attempt: attemptInfo, parts };

@@ -10,24 +10,10 @@ services:
       - "3307:3306"
     volumes:
       - db_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -pdev1012 --silent"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-  db-seed:
-    build:
-      context: .
-      dockerfile: Dockerfile.seed
-    environment:
-      DATABASE_URL: mysql://root:dev1012@mysql:3306/IELTS_Pratice
-    depends_on:
-      mysql:
-        condition: service_healthy
-    restart: "no"
   redis: 
     container_name: "IELTS_Pratice-redis"
     image: redis
+    restart: always
     ports:
       - "6379:6379"
     volumes:

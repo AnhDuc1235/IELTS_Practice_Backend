@@ -17,8 +17,8 @@ model User {
 
   isActive Boolean @default(true)
 
-  createdAt DateTime  @default(now()) @db.Timestamp(0)
-  updatedAt DateTime  @default(now()) @updatedAt @db.Timestamp(0)
+  createdAt DateTime  @default(now()) @db.Timestamp()
+  updatedAt DateTime  @default(now()) @updatedAt @db.Timestamp()
   deletedAt DateTime?
 
   @@map("users")

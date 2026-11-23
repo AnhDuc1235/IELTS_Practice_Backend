@@ -1,25 +1,30 @@
-import express from "express"
-import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.middleware"
-import { testController } from "../controllers/test.controller"
-import { validate } from "../middleware/validate.middleware"
-import { submitTestSchema } from "../validators/test.validate"
+import express from "express";
+import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.middleware";
+import { testController } from "../controllers/test.controller";
+import { validate } from "../middleware/validate.middleware";
+import { submitTestSchema } from "../validators/test.validate";
 
-const router = express.Router()
+const router = express.Router();
 
-// public, but `progress` is included when a valid access token is sent
-router.get("/test", optionalAuthMiddleware, testController.getTests)
-router.get("/test/:testId", optionalAuthMiddleware, testController.getTest)
+// Công khai: Danh sách đề thi và chi tiết đề thi; nếu gửi kèm access token sẽ có thêm tiến trình `progress`
+router.get("/test", optionalAuthMiddleware, testController.getTests);
+router.get("/test/:testId", optionalAuthMiddleware, testController.getTest);
 
-// needs a logged-in user: test structure merged with that user's saved answers
-router.get("/test/:testId/content", authMiddleware, testController.getTestContent)
+// Yêu cầu đăng nhập: Lấy cấu trúc đề thi đã được gộp với câu trả lời đã lưu của thí sinh
+router.get("/test/:testId/content", authMiddleware, testController.getTestContent);
 
-// needs a logged-in user: saves progress (submit = false) or submits the test (submit = true)
-router.post("/test/:testId/submit", authMiddleware, validate(submitTestSchema), testController.submitTest)
+// Yêu cầu đăng nhập: Lưu tiến trình làm dở (submit = false) hoặc nộp bài chính thức (submit = true)
+router.post("/test/:testId/submit", authMiddleware, validate(submitTestSchema), testController.submitTest);
 
-// needs a logged-in user: their attempts with test title / skill / duration and scores
-router.get("/attempts/history", authMiddleware, testController.getTestHistory)
+// Yêu cầu đăng nhập: Lịch sử các lần thi của thí sinh (kèm tiêu đề đề thi, kỹ năng, thời lượng và điểm số)
+// Hỗ trợ cả /attempts/history, /test-history, /test/history để tương thích tối đa với Frontend
+router.get("/attempts/history", authMiddleware, testController.getTestHistory);
+router.get("/test-history", authMiddleware, testController.getTestHistory);
+router.get("/test/history", authMiddleware, testController.getTestHistory);
 
-// needs a logged-in user: review of one finished attempt of the chosen test (?attemptId= to pick another attempt)
-router.get("/attempts/:attemptId", authMiddleware, testController.getTestHistoryDetail)
+// Yêu cầu đăng nhập: Xem lại một lượt thi đã nộp (?attemptId= để chọn lượt thi khác)
+// Hỗ trợ cả /attempts/:attemptId và /test-history/:attemptId
+router.get("/attempts/:attemptId", authMiddleware, testController.getTestHistoryDetail);
+router.get("/test-history/:attemptId", authMiddleware, testController.getTestHistoryDetail);
 
-export default router
+export default router;

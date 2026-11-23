@@ -7,6 +7,7 @@ model Attempt {
   lastSavedAt      DateTime      @default(now()) @map("last_saved_at") @db.DateTime(0)
   submittedAt      DateTime?     @map("submitted_at") @db.DateTime(0)
   timeSpentSeconds Int           @default(0) @map("time_spent_seconds")
+  durationMinutes  Int?          @map("duration_minutes")
   currentPartNo    Int           @default(1) @map("current_part_no") @db.TinyInt
   correctCount     Int?          @map("correct_count")
   totalQuestions   Int?          @map("total_questions")

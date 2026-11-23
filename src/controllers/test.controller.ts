@@ -1,11 +1,11 @@
-import { Request, Response } from "express"
+import { Request, Response } from "express";
 import { testService } from "../services/test.service";
 import { errorType } from "../types/error";
 import { historyQuery, submitTestBody, testQuery } from "../types/test.type";
 import { idFormat } from "../utils/idFormat";
 
 export const testController = {
-    // GET /test - published tests; with an access token each test also has the user's `progress`
+    // GET /test - Lấy danh sách đề thi đã xuất bản; nếu có access token sẽ kèm tiến trình `progress` của thí sinh
     getTests: async (req: Request, res: Response) => {
         try {
             const query: testQuery = {
@@ -13,7 +13,7 @@ export const testController = {
                 limit: Math.min(50, Math.max(1, Number(req.query.limit) || 10)),
                 skill: req.query.skill as string,
                 category: req.query.category as string,
-                // ?search= is matched against the test title; ignored when it is not a single string
+                // ?search= tìm kiếm theo tiêu đề đề thi; bỏ qua nếu không phải chuỗi ký tự
                 search: typeof req.query.search === "string" ? req.query.search.trim().slice(0, 100) : undefined,
                 sort: req.query.sort as string,
             };
@@ -33,11 +33,12 @@ export const testController = {
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
                 success: false,
-                message: (error as Error).message
+                message: (error as Error).message,
             });
         }
     },
-    // GET /test/:testId - test detail; with an access token it also has the user's `progress`
+
+    // GET /test/:testId - Lấy chi tiết đề thi; nếu có access token sẽ kèm tiến trình `progress` của thí sinh
     getTest: async (req: Request, res: Response) => {
         try {
             const testId = idFormat(req.params.testId, "testId");
@@ -46,17 +47,18 @@ export const testController = {
             return res.json({
                 success: true,
                 message: "Get test success",
-                data: test
+                data: test,
             });
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
                 success: false,
-                message: (error as Error).message
+                message: (error as Error).message,
             });
         }
     },
-    // GET /test/:testId/content?attemptId= - question groups / questions / options of the test
-    // merged with the answers the logged-in user already saved (their attempt progress)
+
+    // GET /test/:testId/content?attemptId= - Lấy các phần thi, nhóm câu hỏi, câu hỏi, lựa chọn của đề thi
+    // được gộp sẵn với các câu trả lời mà thí sinh đã lưu trước đó
     getTestContent: async (req: Request, res: Response) => {
         try {
             const userId = req.user!.id;
@@ -68,17 +70,18 @@ export const testController = {
             return res.json({
                 success: true,
                 message: "Get test content success",
-                data: content
+                data: content,
             });
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
                 success: false,
-                message: (error as Error).message
+                message: (error as Error).message,
             });
         }
     },
-    // POST /test/:testId/submit - body mirrors the content JSON (parts -> questionGroups -> questions -> answer).
-    // submit = true scores Reading / Listening (Writing / Speaking are only stored); otherwise progress is just saved.
+
+    // POST /test/:testId/submit - Nhận body dạng cây (parts -> questionGroups -> questions -> answer).
+    // submit = true: Nộp bài và chấm điểm Reading / Listening; submit = false: Chỉ lưu tiến trình làm dở.
     submitTest: async (req: Request, res: Response) => {
         try {
             const userId = req.user!.id;
@@ -90,16 +93,17 @@ export const testController = {
             return res.json({
                 success: true,
                 message: body.submit ? "Submit test success" : "Save progress success",
-                data: result
+                data: result,
             });
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
                 success: false,
-                message: (error as Error).message
+                message: (error as Error).message,
             });
         }
     },
-    // GET /test-history?page=&limit= - the logged-in user's attempts with each test's title / skill / duration and scores
+
+    // GET /attempts/history hoặc /test-history - Lịch sử các lần thi của thí sinh
     getTestHistory: async (req: Request, res: Response) => {
         try {
             const query: historyQuery = {
@@ -123,18 +127,16 @@ export const testController = {
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
                 success: false,
-                message: (error as Error).message
+                message: (error as Error).message,
             });
         }
     },
-    // GET /test-history/:testId?attemptId= - review of one finished attempt: test, parts, question groups, questions,
-    // the user's answers and (by skill) options / correct answers or AI feedback
+
+    // GET /attempts/:attemptId hoặc /test-history/:attemptId - Xem lại bài thi đã hoàn thành:
+    // đề thi, các phần thi, nhóm câu hỏi, câu hỏi, câu trả lời của thí sinh, đáp án đúng (Listening/Reading) hoặc nhận xét AI (Writing/Speaking)
     getTestHistoryDetail: async (req: Request, res: Response) => {
         try {
             const userId = req.user!.id;
-            if (!idFormat(req.params.attemptId, "attemptId")) {
-                throw new Error("attemptId is required");
-            }
             const attemptId = idFormat(req.params.attemptId, "attemptId");
 
             const detail = await testService.getTestHistoryDetail(userId, attemptId);
@@ -142,13 +144,13 @@ export const testController = {
             return res.json({
                 success: true,
                 message: "Get test history detail success",
-                data: detail
+                data: detail,
             });
         } catch (error) {
             return res.status((error as errorType).statusCode ?? 400).json({
                 success: false,
-                message: (error as Error).message
+                message: (error as Error).message,
             });
         }
     },
-}
+};
